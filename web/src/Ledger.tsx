@@ -16,14 +16,15 @@ const money: Partial<ColDef> = { valueFormatter: (p) => (p.value == null ? "" : 
 const WHAT: Record<string, string> = { setoff: "Set-off recorded on invoice", new_invoice: "New invoice for redirected debt", payout: "Payout to creditor" };
 const LEG_STATUS: Record<string, string> = { pending: "Queued", sent: "Sent, waiting for PayPal", done: "Confirmed", failed: "Failed", reverted: "Reversed" };
 
-export function Ledger({ state }: { state: State }) {
-  const [tab, setTab] = useState<"invoices" | "written" | "heard">("invoices");
+export function Ledger({ state, log }: { state: State; log: { id: number; at: string; who: string; source: string; text: string }[] }) {
+  const [tab, setTab] = useState<"invoices" | "written" | "heard" | "log">("invoices");
   const name = useMemo(() => new Map(state.businesses.map((b) => [b.id, b.name])), [state.businesses]);
 
   const tabs = [
     { id: "invoices" as const, label: `Invoices (${state.invoices.length})` },
     { id: "written" as const, label: `Written to PayPal (${state.legs.length})` },
     { id: "heard" as const, label: `Heard from PayPal (${state.received.length})` },
+    { id: "log" as const, label: `Full log (${log.length})` },
   ];
 
   const invoiceCols: ColDef[] = [
@@ -61,8 +62,16 @@ export function Ledger({ state }: { state: State }) {
     { field: "id", headerName: "PayPal event ID", width: 260 },
   ];
 
+  const logCols: ColDef[] = [
+    { field: "at", headerName: "Time", valueFormatter: (p) => new Date(p.value).toLocaleTimeString(), width: 120 },
+    { field: "who", headerName: "Who", width: 210 },
+    { field: "source", headerName: "Decided by", width: 130 },
+    { field: "text", headerName: "What happened", flex: 1, minWidth: 400, wrapText: true, autoHeight: true },
+  ];
+
   const [rows, cols, empty] =
     tab === "invoices" ? [state.invoices, invoiceCols, "No invoices yet. Issue them to begin."]
+    : tab === "log" ? [log, logCols, "Nothing yet. Clear the debts to watch the agents work."]
     : tab === "written" ? [state.legs, writtenCols, "Nothing written yet. Clear the debts and every entry made on PayPal is listed here."]
     : [state.received, heardCols, state.webhooks ? "No webhooks yet. They arrive after payments are sent." : "Webhooks are off because this server has no public address. Payments are confirmed by asking PayPal directly instead."];
 

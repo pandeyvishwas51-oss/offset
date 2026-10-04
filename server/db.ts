@@ -90,7 +90,7 @@ export function openDb(path = process.env.OFFSET_DB ?? "data/offset.db") {
     invoices: () => all<Invoice>("SELECT * FROM invoice ORDER BY from_round IS NOT NULL, id"),
     invoice: (id: string) => get<Invoice>("SELECT * FROM invoice WHERE id = ?", id)!,
     latestRound: () => get<Round>("SELECT * FROM round ORDER BY id DESC LIMIT 1"),
-    say(roundId: number | null, actor: string, kind: string, text: string, about?: { invoice?: string; step?: number }) {
+    say(roundId: number | null, actor: string, kind: string, text: string, about?: { invoice?: string; step?: number; days?: number }) {
       run("INSERT INTO event (round_id, at, actor, kind, text, data) VALUES (?, ?, ?, ?, ?, ?)", roundId, now(), actor, kind, text, about ? JSON.stringify(about) : null);
     },
     now,

@@ -80,7 +80,7 @@ test("an agent that cannot answer means no, never yes", async () => {
   assert.equal(deps.paypal.calls.filter((c) => c === "recordPayment").length, 0);
 });
 
-test("a payout PayPal rejects can be sent again, and starting over withdraws unpaid invoices", async () => {
+test("a payout PayPal rejects can be sent again, and starting over resets the sandbox", async () => {
   const deps = await world({ failOn: (op, n) => op === "createPayout" && n === 1 });
   await runRound(deps);
   await payRemaining(deps); // the first debtor's payout is rejected
@@ -89,7 +89,9 @@ test("a payout PayPal rejects can be sent again, and starting over withdraws unp
   await reconcile(deps);
   assert.equal(sum(deps.db.invoices().filter((i) => i.status === "open")), 0);
 
+  const payouts = deps.paypal.calls.filter((c) => c === "createPayout").length;
   await seed(deps.db, deps.paypal, {});
+  assert.ok(deps.paypal.calls.filter((c) => c === "createPayout").length > payouts, "last run's payments are sent back");
   assert.equal(deps.paypal.calls.filter((c) => c === "cancelInvoice").length, 2, "the held and disputed invoices are withdrawn");
   assert.equal(deps.db.invoices().length, 14);
 });

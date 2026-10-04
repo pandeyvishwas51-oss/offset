@@ -12,7 +12,7 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export async function runRound({ db, paypal, brain }: Deps): Promise<number> {
   const roundId = Number(db.run("INSERT INTO round (status, phase, started) VALUES ('running', 'sync', ?)", db.now()).lastInsertRowid);
-  const say = (actor: string, kind: string, text: string, about?: { invoice?: string; step?: number }) => db.say(roundId, actor, kind, text, about);
+  const say = (actor: string, kind: string, text: string, about?: { invoice?: string; step?: number; days?: number }) => db.say(roundId, actor, kind, text, about);
   const phase = (p: string) => db.run("UPDATE round SET phase = ? WHERE id = ?", p, roundId);
   const name = (id: string) => db.business(id).name;
 
@@ -74,7 +74,7 @@ export async function runRound({ db, paypal, brain }: Deps): Promise<number> {
 
       const decision = await brain.judgeNewPayer(creditor, { amount: r.amount, newPayer: payer, currentPayer: middle })
         .catch((e) => ({ decision: "reject" as const, dueDays: 0, reason: `Our agent could not decide, so the answer is no (${errText(e)}).` }));
-      say(creditor.id, decision.decision, decision.reason, about);
+      say(creditor.id, decision.decision, decision.reason, { step, days: decision.dueDays });
 
       let agreed = decision.decision === "accept";
       if (decision.decision === "counter") {

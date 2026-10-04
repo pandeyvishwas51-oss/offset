@@ -1,15 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Agents, type Focus } from "./Agents.tsx";
-import { Graph, type Debt, type Proposal } from "./Graph.tsx";
+import { Graph, type Bubble, type Debt, type Proposal } from "./Graph.tsx";
 import { Ledger } from "./Ledger.tsx";
 import type { Event, State, Step } from "./types.ts";
 import { usd, usd0 } from "./types.ts";
 
 const STEP_KINDS = new Set(["loop", "redirect"]);
-const TONE: Record<string, string> = {
-  hold: "no", dispute: "no", reject: "no", error: "no", nodeal: "no", counter: "maybe",
-  accept: "yes", ok: "yes", loop: "yes", redirect: "yes", settled: "yes", paid: "yes", done: "yes",
-};
 
 type Pair = { debtor: string; creditor: string; owed: number; redirected: number };
 
@@ -50,7 +46,6 @@ export function App() {
   const [shown, setShown] = useState(0);
   const [hot, setHot] = useState<Set<string>>(new Set());
   const firstLoad = useRef(true);
-  const feed = useRef<HTMLOListElement>(null);
 
   useEffect(() => {
     let live = true;
@@ -88,8 +83,6 @@ export function App() {
     return () => clearTimeout(timer);
   }, [revealed.length]);
 
-  // Scrolls the feed itself, never the page.
-  useEffect(() => { if (feed.current) feed.current.scrollTop = feed.current.scrollHeight; }, [shown]);
 
   if (!state) return <main className="page"><p className="loading">{problem ?? "Loading…"}</p></main>;
 
@@ -155,35 +148,45 @@ export function App() {
   const finished = round?.status === "cleared" && caughtUp;
 
   // The latest entry that is about a decision, and every entry so far about the same invoice or step.
+  type About = { invoice?: string; step?: number; days?: number };
+  const about = (e: Event): About => (e.data ? JSON.parse(e.data) : {});
   let focus: Focus = null;
   const lastAbout = visible.findLast((e) => e.data);
   if (lastAbout && round && !undone) {
-    const about = JSON.parse(lastAbout.data!) as { invoice?: string; step?: number };
-    const same = visible.filter((e) => e.data === lastAbout.data);
-    const invoice = invoices.find((i) => i.id === about.invoice);
-    const step = state.steps.find((st) => st.id === about.step);
+    const key = about(lastAbout);
+    const same = visible.filter((e) => e.data && (key.step ? about(e).step === key.step : about(e).invoice === key.invoice));
+    const invoice = invoices.find((i) => i.id === key.invoice);
+    const step = state.steps.find((st) => st.id === key.step);
     focus = invoice ? { kind: "invoice", invoice, events: same } : step ? { kind: "step", step, events: same } : null;
   }
+
+  // On the graph: the shortcut on the table, and what each agent just said in a few words.
   let proposal: Proposal | null = null;
-  if (focus?.kind === "step" && focus.step.kind === "redirect" && !focus.events.some((e) => e.kind === "redirect" || e.kind === "nodeal")) {
+  const bubbles: Bubble[] = [];
+  const live = !finished || running;
+  if (live && focus?.kind === "step" && focus.step.kind === "redirect") {
     const [from, via, to] = JSON.parse(focus.step.path) as string[];
-    proposal = { from, via, to, amount: focus.step.amount };
+    const closed = focus.events.some((e) => e.kind === "redirect" || e.kind === "nodeal");
+    if (!closed) proposal = { from, via, to, amount: focus.step.amount };
+    const creditorSaid = focus.events.find((e) => e.actor === to);
+    const payerSaid = focus.events.find((e) => e.actor === from);
+    if (creditorSaid) bubbles.push(creditorSaid.kind === "accept" ? { id: to, text: "Yes", tone: "yes" } : creditorSaid.kind === "counter" ? { id: to, text: `Only within ${about(creditorSaid).days} days`, tone: "maybe" } : { id: to, text: "No", tone: "no" });
+    if (payerSaid) bubbles.push(payerSaid.kind === "accept" ? { id: from, text: "Deal", tone: "yes" } : { id: from, text: "Can't do that", tone: "no" });
   }
+  if (live && focus?.kind === "invoice" && focus.events.at(-1)!.kind === "dispute") bubbles.push({ id: focus.events.at(-1)!.actor, text: `Hold ${focus.invoice.number}`, tone: "no" });
+
   const last = visible.at(-1);
   const active = !last || !round || undone ? 0 : finished && !running ? 5
     : ["hold", "dispute", "ok"].includes(last.kind) ? 1 : last.kind === "loop" ? 2
     : ["propose", "accept", "counter", "reject", "redirect", "nodeal"].includes(last.kind) ? 3
     : ["settled", "done", "pay", "paid", "error"].includes(last.kind) ? 4 : 1;
-  const speaking = !caughtUp || round?.status === "running" ? (businesses.find((b) => b.id === last?.actor)?.id ?? null) : null;
+  const speaking = live && round ? (businesses.find((b) => b.id === last?.actor)?.id ?? null) : null;
   const who = state.agents === "claude" ? "Claude agents" : "Rule-based agents";
   const stage = (n: number) => (active > n ? "is-done" : active === n ? "is-active" : "");
   const source = (actor: string) => (businesses.some((b) => b.id === actor) || actor === "checker" ? (state.agents === "claude" ? "Claude" : "Rules") : actor === "paypal" ? "PayPal" : "Code");
-
-  const initials = (id: string) => {
-    const b = businesses.find((b) => b.id === id);
-    return b ? b.name.split(/[^A-Za-z]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() : id === "checker" ? "PC" : id === "paypal" ? "PP" : "OF";
-  };
   const sandbox = state.paypal === "sandbox";
+  const share = (cents: number) => `${owed ? (cents / owed) * 100 : 0}%`;
+  const clearedPct = owed - held > 0 ? Math.round((cancelled / (owed - held)) * 100) : 0;
 
   return (
     <div className="shell">
@@ -193,23 +196,15 @@ export function App() {
           <span className="built">Built on the PayPal Developer Platform</span>
           <span className="chips">
             <span className={`chip ${sandbox ? "chip-on" : ""}`}>{sandbox ? "PayPal sandbox" : "Simulated PayPal"}</span>
-            <span className={`chip ${state.agents === "claude" ? "chip-on" : ""}`}>{state.agents === "claude" ? "Claude agents" : "Rule-based agents"}</span>
+            <span className={`chip ${state.agents === "claude" ? "chip-on" : ""}`}>{who}</span>
           </span>
         </div>
       </header>
-      <p className="strip">
-        {sandbox
-          ? "You're in sandbox mode. Every invoice, set-off and payout here is a real call to PayPal's sandbox. No real money moves."
-          : "Simulated mode. No PayPal keys are set, so PayPal's replies are imitated in memory."}
-        {state.agents !== "claude" && " No AI key is set, so fixed rules stand in for the agents."}
-      </p>
+      <p className="strip">{sandbox ? "Sandbox mode: real PayPal API calls, no real money." : "Simulated mode: no PayPal keys set."}</p>
 
       <main className="page">
         <section className="intro">
-          <div>
-            <h1>Clear what cancels. Pay only what's left.</h1>
-            <p className="pitch">Small businesses owe each other in circles. Their agents cancel what cancels, and PayPal moves only what is left.</p>
-          </div>
+          <h1>Clear what cancels. Pay only what's left.</h1>
           <div className="controls">
             {action && <button className="primary" onClick={action.go} disabled={!action.go}>{action.label}</button>}
             {invoices.length > 0 && <button className="quiet" onClick={() => post("/api/seed")} disabled={running}>Start over</button>}
@@ -218,86 +213,64 @@ export function App() {
         {problem && <p className="problem" role="alert">{problem}</p>}
 
         <ol className="steps" aria-label="How a round works">
-          <li className={stage(1)}><strong>Check the paperwork</strong><em className="by by-ai">{who}</em>A checker compares every invoice with its purchase order and delivery record. Each business's agent can hold back an invoice its owner disputes.</li>
-          <li className={stage(2)}><strong>Cancel the loops</strong><em className="by by-code">Plain code, no AI</em>A owes B, B owes C, C owes A. The circle cancels. No money moves and nobody's position changes.</li>
-          <li className={stage(3)}><strong>Shorten the chains</strong><em className="by by-ai">{who}</em>A pays C directly and B drops out. C's agent judges A's payment record and can ask for faster payment. A's agent answers.</li>
-          <li className={stage(4)}><strong>Pay what's left</strong><em className="by by-paypal">PayPal API</em>The result is written to the real PayPal invoices, and one PayPal payout per business settles the remainder.</li>
+          <li className={stage(1)} title="A checker compares every invoice with its purchase order and delivery record. Each business's agent can hold back an invoice its owner disputes."><strong>Check the paperwork</strong><em className="by by-ai">{who}</em></li>
+          <li className={stage(2)} title="A owes B, B owes C, C owes A. The circle cancels. No money moves and nobody's position changes."><strong>Cancel the loops</strong><em className="by by-code">Plain code, no AI</em></li>
+          <li className={stage(3)} title="A pays C directly and B drops out. C's agent judges A's payment record and can ask for faster payment. A's agent answers."><strong>Shorten the chains</strong><em className="by by-ai">{who}</em></li>
+          <li className={stage(4)} title="The result is written to the real PayPal invoices, and one PayPal payout per business settles the remainder."><strong>Pay what's left</strong><em className="by by-paypal">PayPal API</em></li>
         </ol>
 
         <section className="card totals" aria-label="The sum">
           <dl>
-            <div><dt>Owed between the six</dt><dd>{usd(owed)}</dd></div>
-            <div className="good"><dt>Cancelled, no money moved</dt><dd>{cancelled ? `− ${usd(cancelled)}` : "—"}</dd></div>
-            <div className="warn"><dt>Held back</dt><dd>{held ? `− ${usd(held)}` : "—"}</dd></div>
-            <div><dt>Paid through PayPal</dt><dd>{paid ? `− ${usd(paid)}` : "—"}</dd></div>
-            <div className="still"><dt>Still to pay</dt><dd>{usd(still)}</dd></div>
+            <div><dt>Owed</dt><dd>{usd0(owed)}</dd></div>
+            <div className="good"><dt><i />Cancelled, no money moved</dt><dd>{usd0(cancelled)}</dd></div>
+            <div className="warn"><dt><i />Held back</dt><dd>{usd0(held)}</dd></div>
+            <div className="paid"><dt><i />Paid through PayPal</dt><dd>{usd0(paid)}</dd></div>
+            <div className="still"><dt><i />Still to pay</dt><dd>{usd0(still)}</dd></div>
           </dl>
-          {finished && owed - held > 0 && (
-            <p className="takeaway">
-              {still > 0
-                ? `${usd0(owed - held - cancelled)} of real money will settle ${usd0(owed - held)} of invoices. Clearing changed nobody's net position.`
-                : `${usd0(paid)} of real money settled ${usd0(owed - held)} of invoices.`}
-            </p>
-          )}
+          <div className="meter" role="img" aria-label={`${usd0(cancelled)} cancelled, ${usd0(held)} held back, ${usd0(paid)} paid, ${usd0(still)} still to pay`}>
+            <i className="m-good" style={{ width: share(cancelled) }} />
+            <i className="m-warn" style={{ width: share(held) }} />
+            <i className="m-paid" style={{ width: share(paid) }} />
+            <i className="m-still" style={{ width: share(still) }} />
+          </div>
         </section>
 
         <div className="work">
           <section className="card map" aria-label="Debts between the businesses">
-            <h2>Who owes whom</h2>
-            <Graph businesses={businesses} debts={debts} net={net} hot={hot} scale={scale} speaking={speaking} proposal={proposal} />
+            <Graph businesses={businesses} debts={debts} net={net} hot={hot} scale={scale} speaking={speaking} proposal={proposal} bubbles={bubbles} />
             <p className="key">
-              <span><i className="swatch owed" />Owed on an invoice</span>
+              <span><i className="swatch owed" />Owed</span>
               <span><i className="swatch redirected" />Redirected by agreement</span>
-              <span><i className="swatch held" />Held back for a person to look at</span>
-              <span><i className="swatch proposed" />Shortcut being negotiated</span>
+              <span><i className="swatch proposed" />Being negotiated</span>
+              <span><i className="swatch held" />Held back</span>
             </p>
           </section>
-
           <Agents focus={focus} businesses={businesses} agents={state.agents} />
         </div>
 
-        <section className="card activity">
-          <h2>Activity</h2>
-          <ol className="feed" aria-live="polite" ref={feed}>
-            {visible.length === 0 && <li className="quiet-note">Nothing yet. Clear the debts to watch the agents work.</li>}
-            {visible.map((e) => (
-              <li key={e.id} className={`tone-${TONE[e.kind] ?? "plain"}`}>
-                <span className="avatar" aria-hidden="true">{initials(e.actor)}</span>
-                <div><strong>{actorName(e.actor)}</strong><em className={`src src-${source(e.actor).toLowerCase()}`}>{source(e.actor)}</em><p>{e.text}</p></div>
-              </li>
-            ))}
-          </ol>
-        </section>
+        <Ledger state={state} log={visible.map((e) => ({ id: e.id, at: e.at, who: actorName(e.actor), source: source(e.actor), text: e.text }))} />
 
-        <Ledger state={state} />
-
-        <section className="card worth">
-          <h2>What it's worth</h2>
-          <div className="worth-cols">
-            <div>
-              <h3>For a small business</h3>
-              <p>Invoices get settled without waiting for the business in front of you to be paid first. {cancelled > 0 && owed - held > 0
-                ? `In this run ${Math.round((cancelled / (owed - held)) * 100)}% of the debt was cleared with no cash at all.`
-                : "Most of the debt in a supply chain can clear with no cash at all."}</p>
-            </div>
-            <div>
-              <h3>For PayPal</h3>
-              <p>Invoices between small businesses are mostly paid by bank transfer today. Clearing needs every trading partner on one ledger, which pulls those invoices onto PayPal, where a fee on cleared value and short loans to unblock a chain become possible. This is our projection, not PayPal data.</p>
-            </div>
-            <div>
-              <h3>Why we believe it</h3>
-              <p>
-                59% of US small businesses carry invoices over 30 days late (<a href="https://quickbooks.intuit.com/r/small-business-data/small-business-late-payments-report-2026/">QuickBooks, 2026</a>).
-                Slovenia has cleared debts this way nationally for 30 years.
-                On 133,191 real invoices, loops cleared 21% of debt and chains 54% (<a href="https://arxiv.org/abs/2606.26126">2026 study</a>).
-              </p>
-            </div>
+        <section className="tiles" aria-label="What it's worth">
+          <div className="tile tile-live">
+            <strong>{clearedPct ? `${clearedPct}%` : "—"}</strong>
+            <span>of this debt cleared with no cash moving</span>
+          </div>
+          <div className="tile">
+            <strong>59%</strong>
+            <span>of US small businesses carry invoices over 30 days late <a href="https://quickbooks.intuit.com/r/small-business-data/small-business-late-payments-report-2026/">QuickBooks 2026</a></span>
+          </div>
+          <div className="tile">
+            <strong>54%</strong>
+            <span>of debt cleared this way across 133,191 real invoices <a href="https://arxiv.org/abs/2606.26126">2026 study</a></span>
+          </div>
+          <div className="tile">
+            <strong>30 yrs</strong>
+            <span>Slovenia has cleared business debt like this, nationally</span>
           </div>
         </section>
 
         <footer className="foot">
-          <p>The clearing maths is plain code and never touches a model. Agents only say yes, no, or yes-if.</p>
-          <p>OFFSET is a hackathon project. It is not a PayPal product and is not endorsed by PayPal.</p>
+          <p>The maths is plain code. Agents only answer yes, no, or yes-if. OFFSET is a hackathon project, not a PayPal product.</p>
         </footer>
       </main>
     </div>

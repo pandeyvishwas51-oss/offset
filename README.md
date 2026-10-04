@@ -102,7 +102,7 @@ How the failure handling works:
 ## Limits, stated plainly
 
 - Sandbox only. The PayPal base URL is fixed in code.
-- A sandbox test account cannot re-spend money it receives through a payout, so the two businesses that pay the most run out of test balance after about one full run. Clearing rounds can be repeated freely; the payout step needs test accounts with enough balance. A rejected payout is reported, leaves its invoice open, and can be retried.
+- Sandbox balances are finite. "Start over" sends the last run's payouts back, but the sandbox takes tens of minutes before returned money can be spent again, so full runs started back to back can hit a low balance. A rejected payout is reported, leaves its invoice open, and can be retried.
 - Each demo business has its own PayPal app and keys. A real service would act for businesses through PayPal's partner permissions.
 - A redirect is an agreement between three parties that OFFSET records. Whether set-off and payment direction are enforceable depends on the contract and the country.
 - The loop finder is greedy, not optimal. It is fine for small networks.

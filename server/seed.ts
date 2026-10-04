@@ -76,12 +76,20 @@ export const INVOICES: SeedInvoice[] = [
     po: "Kite booking K-D12: 9 store drops at $200.00 = $1,800.00", delivery: "9 signed proof-of-delivery slips, 15 to 18 Sep" },
 ];
 
-// Withdraws invoices left unpaid by the last run, so the sandbox does not fill up with stale ones.
-// Best effort; a failure here only costs tidiness. Sandbox balances are not restored: money a test account
-// receives through a payout cannot be spent again, so a sent payment cannot usefully be sent back.
+// Puts the sandbox back where it started so the demo can be run again: money paid in the last run is sent
+// back to whoever paid it, and invoices still unpaid are withdrawn. Best effort; a failure only costs tidiness.
+// The sandbox takes a while (tens of minutes) before returned money can be spent again, so runs started
+// back to back can still hit a low balance; the payout step reports that and can be retried.
 async function unwind(db: Db, paypal: PayPal) {
-  await Promise.all(db.invoices().filter((i) => i.status !== "settled" && i.paypal_id).map((i) =>
-    paypal.cancelInvoice(i.creditor, i.paypal_id).catch((e) => console.error(`demo reset, ${i.id}:`, e instanceof Error ? e.message : e))));
+  const paid = db.all<{ creditor: string; debtor: string; total: number }>(
+    "SELECT invoice.creditor AS creditor, invoice.debtor AS debtor, SUM(leg.amount) AS total FROM leg JOIN invoice ON invoice.id = leg.invoice_id WHERE leg.kind = 'payout' AND leg.status = 'done' GROUP BY invoice.creditor, invoice.debtor");
+  const stamp = Date.now().toString(36);
+  const log = (what: string) => (e: unknown) => console.error(`demo reset, ${what}:`, e instanceof Error ? e.message : e);
+  for (const creditor of new Set(paid.map((p) => p.creditor))) {
+    const items = paid.filter((p) => p.creditor === creditor).map((p) => ({ email: db.business(p.debtor).email, amount: p.total, itemId: `RETURN-${p.debtor}`, note: "OFFSET demo reset: returning the last run's payment" }));
+    await paypal.createPayout(creditor, `OFFSET-RETURN-${stamp}-${creditor}`, items).catch(log(creditor));
+  }
+  await Promise.all(db.invoices().filter((i) => i.status !== "settled" && i.paypal_id).map((i) => paypal.cancelInvoice(i.creditor, i.paypal_id).catch(log(i.id))));
 }
 
 // Resets the demo, then issues every demo invoice afresh on PayPal.

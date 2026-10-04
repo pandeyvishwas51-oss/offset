@@ -3,7 +3,7 @@ import { usd0 } from "./types.ts";
 
 export type Debt = { debtor: string; creditor: string; amount: number; kind: "owed" | "redirected" | "held"; note?: string };
 
-const W = 760, H = 560, CX = W / 2, CY = H / 2, RX = 268, RY = 200;
+const W = 760, H = 580, CX = W / 2, CY = H / 2, RX = 268, RY = 196;
 const BOX_W = 148, BOX_H = 56;
 
 // Where a line leaving the centre of a business's box in direction (dx, dy) crosses the box edge.
@@ -14,9 +14,11 @@ function edgeOfBox(cx: number, cy: number, dx: number, dy: number) {
 
 export type Proposal = { from: string; via: string; to: string; amount: number };
 
-export function Graph({ businesses, debts, net, hot, scale, speaking, proposal }: {
+export type Bubble = { id: string; text: string; tone: "yes" | "no" | "maybe" };
+
+export function Graph({ businesses, debts, net, hot, scale, speaking, proposal, bubbles }: {
   businesses: Business[]; debts: Debt[]; net: Map<string, number>; hot: Set<string>; scale: number;
-  speaking: string | null; proposal: Proposal | null;
+  speaking: string | null; proposal: Proposal | null; bubbles: Bubble[];
 }) {
   const at = new Map(businesses.map((b, i) => {
     const a = (-90 + (i * 360) / businesses.length) * (Math.PI / 180);
@@ -83,6 +85,20 @@ export function Graph({ businesses, debts, net, hot, scale, speaking, proposal }
             <text className={`biz-net ${n < 0 ? "is-owing" : ""}`} x={BOX_W / 2} y={42}>
               {n === 0 ? "even" : n < 0 ? `owes ${usd0(-n)} net` : `is owed ${usd0(n)} net`}
             </text>
+            <circle className="agent-dot" cx={BOX_W - 3} cy={3} r={7} />
+          </g>
+        );
+      })}
+      {bubbles.map((bubble) => {
+        // What an agent just said, in two or three words, beside its business. Outside the ring, so it never covers a debt.
+        const [x, y] = at.get(bubble.id)!;
+        const w = bubble.text.length * 7.4 + 26;
+        const above = y < CY;
+        const by = above ? y - BOX_H / 2 - 36 : y + BOX_H / 2 + 10;
+        return (
+          <g key={bubble.id} className={`say say-${bubble.tone}`} transform={`translate(${Math.min(Math.max(x - w / 2, 4), W - w - 4)} ${by})`}>
+            <rect width={w} height={26} rx={13} />
+            <text x={w / 2} y={13} dy="0.36em">{bubble.text}</text>
           </g>
         );
       })}
