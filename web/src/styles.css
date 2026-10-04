@@ -53,13 +53,32 @@ h1 { font: 700 40px/1.1 var(--display); letter-spacing: -0.01em; }
 
 .steps { list-style: none; padding: 0; margin: 0 0 20px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; counter-reset: step; }
 .steps li { counter-increment: step; position: relative; padding: 0 0 0 46px; font-size: 14.5px; line-height: 1.45; color: var(--muted); }
-.steps li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--blue-deep); color: var(--white); font: 700 15px var(--display); }
-.steps strong { display: block; font: 600 17px/1.3 var(--display); color: var(--navy); margin-bottom: 2px; }
+.steps li::before { content: counter(step); position: absolute; left: 0; top: 0; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--white); border: 2px solid var(--line); color: var(--muted); font: 700 15px var(--display); transition: background 0.3s, border-color 0.3s, color 0.3s; }
+.steps li.is-active::before { background: var(--gold); border-color: var(--gold); color: var(--navy); box-shadow: 0 0 0 5px rgb(255 209 64 / 0.35); }
+.steps li.is-done::before { content: "✓"; background: var(--blue-deep); border-color: var(--blue-deep); color: var(--white); }
+.steps strong { display: block; font: 600 17px/1.3 var(--display); color: var(--navy); }
+.by { display: block; width: fit-content; margin: 3px 0 5px; padding: 1px 10px; border-radius: 999px; font: 600 12px/1.6 var(--body); font-style: normal; }
+.by-ai, .src-claude, .src-rules { background: #efeaff; color: #4a2fc0; }
+.by-code, .src-code { background: var(--ground); color: var(--navy); border: 1px solid var(--line); }
+.by-paypal, .src-paypal { background: var(--blue-wash); color: var(--blue-deep); }
+
+.totals { margin-bottom: 20px; padding: 16px 24px; }
+.totals dl { display: grid; grid-template-columns: repeat(4, 1fr) 1.5fr; gap: 0; align-items: end; }
+.totals dl div { padding: 0 20px; border-left: 1px solid var(--line); }
+.totals dl div:first-child { padding-left: 0; border-left: 0; }
+.totals dt { font-size: 14px; color: var(--muted); }
+.totals dd { font: 600 22px/1.3 var(--display); white-space: nowrap; }
+.totals .good dd { color: var(--green); }
+.totals .warn dd { color: var(--red); }
+.totals .still dd { font-size: 40px; font-weight: 700; line-height: 1.05; }
+.totals .takeaway { margin-top: 14px; }
 
 .card { background: var(--white); border: 1px solid var(--line); border-radius: 20px; padding: 22px 24px; }
 h2 { font: 600 18px/1.3 var(--display); }
 
-.work { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(340px, 1fr); gap: 20px; margin-bottom: 20px; }
+.work { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(360px, 1fr); gap: 20px; margin-bottom: 20px; }
+/* The decision panel takes the graph card's height and scrolls inside it. */
+.work > .agents { height: 0; min-height: 100%; }
 .map { min-width: 0; }
 .graph { display: block; width: 100%; height: auto; margin-top: 6px; }
 
@@ -77,7 +96,16 @@ h2 { font: 600 18px/1.3 var(--display); }
 .tip-held { fill: #8a929c; }
 .tip-hot { fill: var(--gold); }
 
-.biz rect { fill: var(--white); stroke: var(--navy); stroke-width: 1.5; }
+.debt-proposed path { stroke: var(--violet); stroke-dasharray: 3 7; stroke-linecap: round; animation: march 0.9s linear infinite; }
+.debt-proposed text { fill: var(--violet); }
+.tip-proposed { fill: var(--violet); }
+@keyframes march { to { stroke-dashoffset: -20; } }
+
+.biz rect { fill: var(--white); stroke: var(--navy); stroke-width: 1.5; transition: stroke 0.3s, stroke-width 0.3s, fill 0.3s; }
+.biz.is-party rect { stroke: var(--violet); stroke-width: 3; }
+.biz.is-speaking rect { stroke: var(--violet); stroke-width: 4; fill: #efeaff; }
+.biz.is-leaving rect { stroke-dasharray: 5 5; stroke: #8a929c; }
+.biz.is-leaving text { opacity: 0.55; }
 .biz text { text-anchor: middle; font-family: var(--body); }
 .biz-name { font-size: 15px; font-weight: 700; fill: var(--navy); }
 .biz-net { font-size: 12.5px; fill: var(--green); font-weight: 500; }
@@ -88,24 +116,51 @@ h2 { font: 600 18px/1.3 var(--display); }
 .swatch { display: inline-block; width: 26px; border-top: 4px solid var(--blue-deep); border-radius: 2px; }
 .swatch.redirected { border-color: var(--violet); }
 .swatch.held { border-top: 2px dashed #8a929c; }
+.swatch.proposed { border-top: 3px dotted var(--violet); }
 
-.side { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
-.balance h2 { color: var(--muted); font: 500 16px var(--body); }
-.figure { font: 700 52px/1.1 var(--display); letter-spacing: -0.01em; margin: 2px 0 14px; }
-.sum div { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); }
-.sum dd { font-weight: 700; white-space: nowrap; }
-.sum .good dd { color: var(--green); }
-.sum .warn dd { color: var(--red); }
-.takeaway { margin-top: 6px; padding: 14px 16px; border-radius: 12px; background: var(--blue-wash); font-weight: 600; line-height: 1.4; }
+.takeaway { padding: 12px 16px; border-radius: 12px; background: var(--blue-wash); font-weight: 600; line-height: 1.4; }
 
-.activity { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-/* The feed takes whatever height the graph card leaves, and scrolls inside it. */
-.feed { list-style: none; padding: 0; margin-top: 8px; flex: 1 1 0; min-height: 200px; overflow-y: auto; }
-.feed li { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); font-size: 15px; line-height: 1.4; }
+.agents { display: flex; flex-direction: column; gap: 12px; min-width: 0; overflow-y: auto; }
+.agents-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.agents-head h2 { margin-right: auto; }
+.agents .tabs button { padding: 5px 14px; font-size: 13.5px; }
+.lead { font-size: 15.5px; line-height: 1.45; }
+.voice { border: 1px solid var(--line); border-left: 5px solid var(--lavender); border-radius: 14px; padding: 14px 16px; display: grid; gap: 10px; }
+.voice h4 { margin: 0; font: 600 16px var(--display); }
+.told span, .said span { display: block; font-size: 12.5px; font-weight: 600; color: var(--muted); margin-bottom: 2px; }
+.told blockquote, .roster blockquote { margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--ground); font-size: 14px; line-height: 1.45; color: var(--navy); }
+.said { padding: 10px 12px; border-radius: 10px; background: #efeaff; }
+.said span { color: #4a2fc0; font-size: 13.5px; }
+.said p { font-size: 15px; line-height: 1.4; font-weight: 500; }
+.voice.said-accept { border-left-color: var(--green); }
+.voice.said-accept .said { background: #e6f4ec; }
+.voice.said-accept .said span { color: var(--green); }
+.voice.said-reject, .voice.said-hold, .voice.said-dispute { border-left-color: var(--red); }
+.voice.said-reject .said, .voice.said-hold .said, .voice.said-dispute .said { background: #fdecec; }
+.voice.said-reject .said span, .voice.said-hold .said span, .voice.said-dispute .said span { color: var(--red); }
+.voice.said-counter { border-left-color: var(--gold); }
+.voice.said-counter .said { background: #fff4c7; }
+.voice.said-counter .said span { color: #6b5200; }
+.voice.said-code { border-left-color: var(--navy); }
+.voice.said-code .said { background: var(--ground); }
+.voice.said-code .said span { color: var(--navy); }
+.voice.is-thinking .said span { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+.outcome { padding: 10px 14px; border-radius: 10px; font-weight: 700; }
+.outcome.is-yes { background: #e6f4ec; color: var(--green); }
+.outcome.is-no { background: #fdecec; color: var(--red); }
+.roster { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.roster h4 { margin: 0 0 4px; font: 600 15px var(--display); }
+.roster h4 span { font: 400 13px var(--body); color: var(--muted); margin-left: 6px; }
+
+.activity { margin-bottom: 20px; }
+.feed { list-style: none; padding: 0; margin-top: 8px; max-height: 280px; overflow-y: auto; }
+.feed li { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 15px; line-height: 1.4; }
 .feed li:first-child { border-top: 0; }
 .feed strong { font-weight: 700; }
 .feed li > div { min-width: 0; }
 .feed p { color: var(--muted); overflow-wrap: anywhere; }
+.src { margin-left: 8px; padding: 1px 9px; border-radius: 999px; font: 600 11.5px/1.6 var(--body); font-style: normal; }
 .avatar { flex: 0 0 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font: 700 14px var(--body); background: var(--ground); color: var(--navy); }
 .tone-yes .avatar { background: var(--blue-wash); color: var(--blue-deep); }
 .tone-no .avatar { background: #fdecec; color: var(--red); }
@@ -139,14 +194,18 @@ h2 { font: 600 18px/1.3 var(--display); }
   .intro { flex-direction: column; align-items: stretch; gap: 16px; }
   h1 { font-size: 30px; }
   .controls { flex-wrap: wrap; }
-  .work { grid-template-columns: 1fr; }
   .steps { grid-template-columns: 1fr; gap: 14px; }
+  .totals dl { grid-template-columns: 1fr 1fr; gap: 14px 0; }
+  .totals dl div { padding: 0 12px 0 0; border-left: 0; }
+  .totals .still { grid-column: 1 / -1; }
+  .totals .still dd { font-size: 34px; }
+  .work { grid-template-columns: 1fr; }
+  .work > .agents { height: auto; min-height: 0; }
   .worth-cols { grid-template-columns: 1fr; gap: 16px; }
-  .feed { flex-basis: auto; max-height: 320px; }
   .card { padding: 18px 16px; border-radius: 16px; }
   .grid { margin: 16px -16px 0; }
-  .figure { font-size: 40px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .debt path, .debt text { transition: none; }
+  .debt-proposed path, .voice.is-thinking .said span { animation: none; }
 }

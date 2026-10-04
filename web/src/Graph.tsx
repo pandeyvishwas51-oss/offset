@@ -12,8 +12,11 @@ function edgeOfBox(cx: number, cy: number, dx: number, dy: number) {
   return [cx + dx * t, cy + dy * t];
 }
 
-export function Graph({ businesses, debts, net, hot, scale }: {
+export type Proposal = { from: string; via: string; to: string; amount: number };
+
+export function Graph({ businesses, debts, net, hot, scale, speaking, proposal }: {
   businesses: Business[]; debts: Debt[]; net: Map<string, number>; hot: Set<string>; scale: number;
+  speaking: string | null; proposal: Proposal | null;
 }) {
   const at = new Map(businesses.map((b, i) => {
     const a = (-90 + (i * 360) / businesses.length) * (Math.PI / 180);
@@ -23,7 +26,7 @@ export function Graph({ businesses, debts, net, hot, scale }: {
   return (
     <svg className="graph" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Who owes whom">
       <defs>
-        {(["owed", "redirected", "held", "hot"] as const).map((k) => (
+        {(["owed", "redirected", "held", "hot", "proposed"] as const).map((k) => (
           <marker key={k} id={`tip-${k}`} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
             <path d="M0 0 L10 5 L0 10 z" className={`tip tip-${k}`} />
           </marker>
@@ -54,11 +57,27 @@ export function Graph({ businesses, debts, net, hot, scale }: {
           </g>
         );
       })}
+      {proposal && (() => {
+        // The shortcut on the table, drawn dotted until the agents agree or refuse.
+        const a = at.get(proposal.from)!, b = at.get(proposal.to)!;
+        const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+        const len = Math.hypot(dx, dy);
+        const [qx, qy] = [(a[0] + b[0]) / 2 + (dy / len) * 46, (a[1] + b[1]) / 2 - (dx / len) * 46];
+        const [sx, sy] = edgeOfBox(a[0], a[1], qx - a[0], qy - a[1]);
+        const [ex, ey] = edgeOfBox(b[0], b[1], qx - b[0], qy - b[1]);
+        return (
+          <g className="debt debt-proposed">
+            <path d={`M${sx} ${sy} Q${qx} ${qy} ${ex} ${ey}`} strokeWidth={3} markerEnd="url(#tip-proposed)" />
+            <text x={0.25 * sx + 0.5 * qx + 0.25 * ex} y={0.25 * sy + 0.5 * qy + 0.25 * ey} dy="0.35em">proposed {usd0(proposal.amount)}</text>
+          </g>
+        );
+      })()}
       {businesses.map((b) => {
         const [x, y] = at.get(b.id)!;
         const n = net.get(b.id) ?? 0;
+        const role = speaking === b.id ? " is-speaking" : proposal?.via === b.id ? " is-leaving" : proposal && (proposal.from === b.id || proposal.to === b.id) ? " is-party" : "";
         return (
-          <g key={b.id} className="biz" transform={`translate(${x - BOX_W / 2} ${y - BOX_H / 2})`}>
+          <g key={b.id} className={`biz${role}`} transform={`translate(${x - BOX_W / 2} ${y - BOX_H / 2})`}>
             <rect width={BOX_W} height={BOX_H} rx={14} />
             <text className="biz-name" x={BOX_W / 2} y={23}>{b.name}</text>
             <text className={`biz-net ${n < 0 ? "is-owing" : ""}`} x={BOX_W / 2} y={42}>

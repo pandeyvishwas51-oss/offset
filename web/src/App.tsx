@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Graph, type Debt } from "./Graph.tsx";
+import { Agents, type Focus } from "./Agents.tsx";
+import { Graph, type Debt, type Proposal } from "./Graph.tsx";
 import { Ledger } from "./Ledger.tsx";
 import type { Event, State, Step } from "./types.ts";
 import { usd, usd0 } from "./types.ts";
 
 const STEP_KINDS = new Set(["loop", "redirect"]);
 const TONE: Record<string, string> = {
-  hold: "no", dispute: "no", reject: "no", error: "no", counter: "maybe",
+  hold: "no", dispute: "no", reject: "no", error: "no", nodeal: "no", counter: "maybe",
   accept: "yes", ok: "yes", loop: "yes", redirect: "yes", settled: "yes", paid: "yes", done: "yes",
 };
 
@@ -153,6 +154,31 @@ export function App() {
   };
   const finished = round?.status === "cleared" && caughtUp;
 
+  // The latest entry that is about a decision, and every entry so far about the same invoice or step.
+  let focus: Focus = null;
+  const lastAbout = visible.findLast((e) => e.data);
+  if (lastAbout && round && !undone) {
+    const about = JSON.parse(lastAbout.data!) as { invoice?: string; step?: number };
+    const same = visible.filter((e) => e.data === lastAbout.data);
+    const invoice = invoices.find((i) => i.id === about.invoice);
+    const step = state.steps.find((st) => st.id === about.step);
+    focus = invoice ? { kind: "invoice", invoice, events: same } : step ? { kind: "step", step, events: same } : null;
+  }
+  let proposal: Proposal | null = null;
+  if (focus?.kind === "step" && focus.step.kind === "redirect" && !focus.events.some((e) => e.kind === "redirect" || e.kind === "nodeal")) {
+    const [from, via, to] = JSON.parse(focus.step.path) as string[];
+    proposal = { from, via, to, amount: focus.step.amount };
+  }
+  const last = visible.at(-1);
+  const active = !last || !round || undone ? 0 : finished && !running ? 5
+    : ["hold", "dispute", "ok"].includes(last.kind) ? 1 : last.kind === "loop" ? 2
+    : ["propose", "accept", "counter", "reject", "redirect", "nodeal"].includes(last.kind) ? 3
+    : ["settled", "done", "pay", "paid", "error"].includes(last.kind) ? 4 : 1;
+  const speaking = !caughtUp || round?.status === "running" ? (businesses.find((b) => b.id === last?.actor)?.id ?? null) : null;
+  const who = state.agents === "claude" ? "Claude agents" : "Rule-based agents";
+  const stage = (n: number) => (active > n ? "is-done" : active === n ? "is-active" : "");
+  const source = (actor: string) => (businesses.some((b) => b.id === actor) || actor === "checker" ? (state.agents === "claude" ? "Claude" : "Rules") : actor === "paypal" ? "PayPal" : "Code");
+
   const initials = (id: string) => {
     const b = businesses.find((b) => b.id === id);
     return b ? b.name.split(/[^A-Za-z]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() : id === "checker" ? "PC" : id === "paypal" ? "PP" : "OF";
@@ -192,56 +218,56 @@ export function App() {
         {problem && <p className="problem" role="alert">{problem}</p>}
 
         <ol className="steps" aria-label="How a round works">
-          <li><strong>Check the paperwork</strong>An AI checker compares every invoice with its purchase order and delivery record. Each business's agent can hold back an invoice its owner disputes.</li>
-          <li><strong>Cancel the loops</strong>A owes B, B owes C, C owes A. Plain code cancels the circle. No money moves and nobody's position changes.</li>
-          <li><strong>Shorten the chains</strong>A pays C directly and B drops out. C's agent judges A's payment record and can ask for faster payment. A's agent answers.</li>
-          <li><strong>Pay what's left</strong>The result is written to the real PayPal invoices, and one PayPal payout per business settles the remainder.</li>
+          <li className={stage(1)}><strong>Check the paperwork</strong><em className="by by-ai">{who}</em>A checker compares every invoice with its purchase order and delivery record. Each business's agent can hold back an invoice its owner disputes.</li>
+          <li className={stage(2)}><strong>Cancel the loops</strong><em className="by by-code">Plain code, no AI</em>A owes B, B owes C, C owes A. The circle cancels. No money moves and nobody's position changes.</li>
+          <li className={stage(3)}><strong>Shorten the chains</strong><em className="by by-ai">{who}</em>A pays C directly and B drops out. C's agent judges A's payment record and can ask for faster payment. A's agent answers.</li>
+          <li className={stage(4)}><strong>Pay what's left</strong><em className="by by-paypal">PayPal API</em>The result is written to the real PayPal invoices, and one PayPal payout per business settles the remainder.</li>
         </ol>
+
+        <section className="card totals" aria-label="The sum">
+          <dl>
+            <div><dt>Owed between the six</dt><dd>{usd(owed)}</dd></div>
+            <div className="good"><dt>Cancelled, no money moved</dt><dd>{cancelled ? `− ${usd(cancelled)}` : "—"}</dd></div>
+            <div className="warn"><dt>Held back</dt><dd>{held ? `− ${usd(held)}` : "—"}</dd></div>
+            <div><dt>Paid through PayPal</dt><dd>{paid ? `− ${usd(paid)}` : "—"}</dd></div>
+            <div className="still"><dt>Still to pay</dt><dd>{usd(still)}</dd></div>
+          </dl>
+          {finished && owed - held > 0 && (
+            <p className="takeaway">
+              {still > 0
+                ? `${usd0(owed - held - cancelled)} of real money will settle ${usd0(owed - held)} of invoices. Clearing changed nobody's net position.`
+                : `${usd0(paid)} of real money settled ${usd0(owed - held)} of invoices.`}
+            </p>
+          )}
+        </section>
 
         <div className="work">
           <section className="card map" aria-label="Debts between the businesses">
             <h2>Who owes whom</h2>
-            <Graph businesses={businesses} debts={debts} net={net} hot={hot} scale={scale} />
+            <Graph businesses={businesses} debts={debts} net={net} hot={hot} scale={scale} speaking={speaking} proposal={proposal} />
             <p className="key">
               <span><i className="swatch owed" />Owed on an invoice</span>
               <span><i className="swatch redirected" />Redirected by agreement</span>
               <span><i className="swatch held" />Held back for a person to look at</span>
+              <span><i className="swatch proposed" />Shortcut being negotiated</span>
             </p>
           </section>
 
-          <aside className="side">
-            <section className="card balance">
-              <h2>Still to pay</h2>
-              <p className="figure">{usd(still)}</p>
-              <dl className="sum">
-                <div><dt>Owed between the six</dt><dd>{usd(owed)}</dd></div>
-                <div className="good"><dt>Cancelled, no money moved</dt><dd>{cancelled ? `− ${usd(cancelled)}` : "—"}</dd></div>
-                {held > 0 && <div className="warn"><dt>Held back</dt><dd>− {usd(held)}</dd></div>}
-                {paid > 0 && <div><dt>Paid through PayPal</dt><dd>− {usd(paid)}</dd></div>}
-              </dl>
-              {finished && owed - held > 0 && (
-                <p className="takeaway">
-                  {still > 0
-                    ? `${usd0(owed - held - cancelled)} of real money will settle ${usd0(owed - held)} of invoices. Clearing changed nobody's net position.`
-                    : `${usd0(paid)} of real money settled ${usd0(owed - held)} of invoices.`}
-                </p>
-              )}
-            </section>
-
-            <section className="card activity">
-              <h2>Activity</h2>
-              <ol className="feed" aria-live="polite" ref={feed}>
-                {visible.length === 0 && <li className="quiet-note">Nothing yet. Clear the debts to watch the agents work.</li>}
-                {visible.map((e) => (
-                  <li key={e.id} className={`tone-${TONE[e.kind] ?? "plain"}`}>
-                    <span className="avatar" aria-hidden="true">{initials(e.actor)}</span>
-                    <div><strong>{actorName(e.actor)}</strong><p>{e.text}</p></div>
-                  </li>
-                ))}
-              </ol>
-            </section>
-          </aside>
+          <Agents focus={focus} businesses={businesses} agents={state.agents} />
         </div>
+
+        <section className="card activity">
+          <h2>Activity</h2>
+          <ol className="feed" aria-live="polite" ref={feed}>
+            {visible.length === 0 && <li className="quiet-note">Nothing yet. Clear the debts to watch the agents work.</li>}
+            {visible.map((e) => (
+              <li key={e.id} className={`tone-${TONE[e.kind] ?? "plain"}`}>
+                <span className="avatar" aria-hidden="true">{initials(e.actor)}</span>
+                <div><strong>{actorName(e.actor)}</strong><em className={`src src-${source(e.actor).toLowerCase()}`}>{source(e.actor)}</em><p>{e.text}</p></div>
+              </li>
+            ))}
+          </ol>
+        </section>
 
         <Ledger state={state} />
 

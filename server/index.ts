@@ -32,7 +32,7 @@ function state() {
     agents: config.brain.kind,
     webhooks: Boolean(config.sandbox && config.publicUrl),
     busy,
-    businesses: db.businesses().map(({ id, name, trade, on_time_pct, avg_days_late, policy }) => ({ id, name, trade, on_time_pct, avg_days_late, policy })),
+    businesses: db.businesses().map(({ id, name, trade, on_time_pct, avg_days_late, policy, notes }) => ({ id, name, trade, on_time_pct, avg_days_late, policy, notes })),
     invoices: db.invoices(),
     round,
     steps: round ? db.all("SELECT * FROM step WHERE round_id = ? ORDER BY id", round.id) : [],

@@ -15,12 +15,13 @@ export type Round = {
   id: number; status: "running" | "cleared" | "failed"; phase: string;
   gross: number; left: number; snapshot: string | null; started: string; finished: string | null; error: string | null;
 };
-export type StepRow = { id: number; round_id: number; kind: "loop" | "redirect"; path: string; amount: number; status: "agreed" | "refused"; terms: string | null };
+export type StepRow = { id: number; round_id: number; kind: "loop" | "redirect"; path: string; amount: number; status: "proposed" | "agreed" | "refused"; terms: string | null };
 export type Leg = {
   id: number; round_id: number; kind: "setoff" | "new_invoice" | "payout"; invoice_id: string;
   amount: number; marker: string; status: "pending" | "sent" | "done" | "failed" | "reverted"; ref: string | null; error: string | null;
 };
 
+const SCHEMA_VERSION = 2;
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS business (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, trade TEXT NOT NULL, email TEXT NOT NULL,
@@ -41,7 +42,7 @@ CREATE TABLE IF NOT EXISTS round (
 CREATE TABLE IF NOT EXISTS step (
   id INTEGER PRIMARY KEY AUTOINCREMENT, round_id INTEGER NOT NULL REFERENCES round(id),
   kind TEXT NOT NULL CHECK (kind IN ('loop','redirect')), path TEXT NOT NULL, amount INTEGER NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('agreed','refused')), terms TEXT
+  status TEXT NOT NULL CHECK (status IN ('proposed','agreed','refused')), terms TEXT
 );
 -- One row per action on PayPal. marker is written into the PayPal note, so a retry can find its own earlier attempt.
 CREATE TABLE IF NOT EXISTS leg (
@@ -51,7 +52,8 @@ CREATE TABLE IF NOT EXISTS leg (
   status TEXT NOT NULL CHECK (status IN ('pending','sent','done','failed','reverted')), ref TEXT, error TEXT
 );
 CREATE TABLE IF NOT EXISTS event (
-  id INTEGER PRIMARY KEY AUTOINCREMENT, round_id INTEGER, at TEXT NOT NULL, actor TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL
+  id INTEGER PRIMARY KEY AUTOINCREMENT, round_id INTEGER, at TEXT NOT NULL, actor TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL,
+  data TEXT -- JSON: which invoice or step this entry is about, so the interface can show the decision behind it
 );
 -- PayPal's event id is the primary key, so a webhook delivered twice is processed once.
 CREATE TABLE IF NOT EXISTS webhook (
@@ -65,6 +67,12 @@ export function openDb(path = process.env.OFFSET_DB ?? "data/offset.db") {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const sql = new DatabaseSync(path);
   sql.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+  // ponytail: demo state only, so a schema change drops and recreates instead of migrating.
+  const version = (sql.prepare("PRAGMA user_version").get() as { user_version: number }).user_version;
+  if (version !== SCHEMA_VERSION) {
+    sql.exec("PRAGMA foreign_keys = OFF; DROP TABLE IF EXISTS webhook; DROP TABLE IF EXISTS event; DROP TABLE IF EXISTS leg; DROP TABLE IF EXISTS step; DROP TABLE IF EXISTS round; DROP TABLE IF EXISTS invoice; DROP TABLE IF EXISTS business; PRAGMA foreign_keys = ON;");
+    sql.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+  }
   sql.exec(SCHEMA);
 
   const all = <T>(q: string, ...p: (string | number | null)[]) => sql.prepare(q).all(...p) as T[];
@@ -82,8 +90,8 @@ export function openDb(path = process.env.OFFSET_DB ?? "data/offset.db") {
     invoices: () => all<Invoice>("SELECT * FROM invoice ORDER BY from_round IS NOT NULL, id"),
     invoice: (id: string) => get<Invoice>("SELECT * FROM invoice WHERE id = ?", id)!,
     latestRound: () => get<Round>("SELECT * FROM round ORDER BY id DESC LIMIT 1"),
-    say(roundId: number | null, actor: string, kind: string, text: string) {
-      run("INSERT INTO event (round_id, at, actor, kind, text) VALUES (?, ?, ?, ?, ?)", roundId, now(), actor, kind, text);
+    say(roundId: number | null, actor: string, kind: string, text: string, about?: { invoice?: string; step?: number }) {
+      run("INSERT INTO event (round_id, at, actor, kind, text, data) VALUES (?, ?, ?, ?, ?, ?)", roundId, now(), actor, kind, text, about ? JSON.stringify(about) : null);
     },
     now,
   };

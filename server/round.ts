@@ -12,7 +12,7 @@ const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export async function runRound({ db, paypal, brain }: Deps): Promise<number> {
   const roundId = Number(db.run("INSERT INTO round (status, phase, started) VALUES ('running', 'sync', ?)", db.now()).lastInsertRowid);
-  const say = (actor: string, kind: string, text: string) => db.say(roundId, actor, kind, text);
+  const say = (actor: string, kind: string, text: string, about?: { invoice?: string; step?: number }) => db.say(roundId, actor, kind, text, about);
   const phase = (p: string) => db.run("UPDATE round SET phase = ? WHERE id = ?", p, roundId);
   const name = (id: string) => db.business(id).name;
 
@@ -32,7 +32,7 @@ export async function runRound({ db, paypal, brain }: Deps): Promise<number> {
       const verdict = await brain.verify(inv).catch((e) => ({ ok: false, reason: `Could not be checked, so it is held back (${errText(e)}).` }));
       if (verdict.ok) return;
       db.run("UPDATE invoice SET status = 'held', flag = ? WHERE id = ?", verdict.reason, inv.id);
-      say("checker", "hold", `Held back ${inv.number} (${usd(inv.open)}): ${verdict.reason}`);
+      say("checker", "hold", `Held back ${inv.number} (${usd(inv.open)}): ${verdict.reason}`, { invoice: inv.id });
     }));
 
     // 3. Each business's agent can hold back invoices its owner does not want settled.
@@ -46,7 +46,7 @@ export async function runRound({ db, paypal, brain }: Deps): Promise<number> {
       }));
       for (const d of check.disputed) {
         const changed = db.run("UPDATE invoice SET status = 'disputed', flag = ? WHERE id = ? AND status = 'open'", d.reason, d.invoiceId).changes;
-        if (changed) say(biz.id, "dispute", `Holding back ${d.invoiceId}: ${d.reason}`);
+        if (changed) say(biz.id, "dispute", `Holding back ${d.invoiceId}: ${d.reason}`, { invoice: d.invoiceId });
       }
       if (!check.disputed.length) say(biz.id, "ok", "Our books agree with every invoice. Go ahead.");
     }));
@@ -58,8 +58,8 @@ export async function runRound({ db, paypal, brain }: Deps): Promise<number> {
     // The debts as they stood before clearing, kept so the interface can replay the round step by step.
     db.run("UPDATE round SET snapshot = ? WHERE id = ?", JSON.stringify([...graph.values()].map((e) => ({ debtor: e.debtor, creditor: e.creditor, amount: e.start }))), roundId);
     for (const loop of cancelLoops(graph)) {
-      db.run("INSERT INTO step (round_id, kind, path, amount, status) VALUES (?, 'loop', ?, ?, 'agreed')", roundId, JSON.stringify(loop.path), loop.amount);
-      say("offset", "loop", `Loop found: ${loop.path.map(name).join(" owes ")} owes ${name(loop.path[0])}. Cancelled ${usd(loop.amount)} from each debt.`);
+      const step = Number(db.run("INSERT INTO step (round_id, kind, path, amount, status) VALUES (?, 'loop', ?, ?, 'agreed')", roundId, JSON.stringify(loop.path), loop.amount).lastInsertRowid);
+      say("offset", "loop", `Loop found: ${loop.path.map(name).join(" owes ")} owes ${name(loop.path[0])}. Cancelled ${usd(loop.amount)} from each debt.`, { step });
     }
 
     // 5. Shorten chains. This changes who a creditor relies on, so the agents negotiate each one.
@@ -67,29 +67,30 @@ export async function runRound({ db, paypal, brain }: Deps): Promise<number> {
     const refused = new Set<string>();
     for (let r = nextRedirect(graph, refused); r; r = nextRedirect(graph, refused)) {
       const [payer, middle, creditor] = [db.business(r.from), db.business(r.via), db.business(r.to)];
-      say("offset", "propose", `Proposal: ${payer.name} pays ${creditor.name} ${usd(r.amount)} directly, and ${middle.name} drops out of the chain.`);
-      const insert = (status: string, terms: object) =>
-        db.run("INSERT INTO step (round_id, kind, path, amount, status, terms) VALUES (?, 'redirect', ?, ?, ?, ?)", roundId, JSON.stringify([r.from, r.via, r.to]), r.amount, status, JSON.stringify(terms));
+      const step = Number(db.run("INSERT INTO step (round_id, kind, path, amount, status) VALUES (?, 'redirect', ?, ?, 'proposed')", roundId, JSON.stringify([r.from, r.via, r.to]), r.amount).lastInsertRowid);
+      const about = { step };
+      const close = (status: "agreed" | "refused", terms: object) => db.run("UPDATE step SET status = ?, terms = ? WHERE id = ?", status, JSON.stringify(terms), step);
+      say("offset", "propose", `Proposal: ${payer.name} pays ${creditor.name} ${usd(r.amount)} directly, and ${middle.name} drops out of the chain.`, about);
 
       const decision = await brain.judgeNewPayer(creditor, { amount: r.amount, newPayer: payer, currentPayer: middle })
         .catch((e) => ({ decision: "reject" as const, dueDays: 0, reason: `Our agent could not decide, so the answer is no (${errText(e)}).` }));
-      say(creditor.id, decision.decision, decision.reason);
+      say(creditor.id, decision.decision, decision.reason, about);
 
       let agreed = decision.decision === "accept";
       if (decision.decision === "counter") {
         const answer = await brain.answerTerms(payer, { amount: r.amount, creditor, dueDays: decision.dueDays })
           .catch((e) => ({ accept: false, reason: `Our agent could not decide, so the answer is no (${errText(e)}).` }));
-        say(payer.id, answer.accept ? "accept" : "reject", answer.reason);
+        say(payer.id, answer.accept ? "accept" : "reject", answer.reason, about);
         agreed = answer.accept;
       }
       if (agreed) {
         applyRedirect(graph, r, decision.dueDays);
-        insert("agreed", { dueDays: decision.dueDays });
-        say("offset", "redirect", `Agreed. ${payer.name} now owes ${creditor.name} ${usd(r.amount)}, due in ${decision.dueDays} days. One debt gone.`);
+        close("agreed", { dueDays: decision.dueDays });
+        say("offset", "redirect", `Agreed. ${payer.name} now owes ${creditor.name} ${usd(r.amount)}, due in ${decision.dueDays} days. One debt gone.`, about);
       } else {
         refuse(refused, r);
-        insert("refused", {});
-        say("offset", "info", "No deal. Looking for another route.");
+        close("refused", { dueDays: decision.dueDays });
+        say("offset", "nodeal", "No deal. Looking for another route.", about);
       }
     }
 
