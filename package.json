@@ -1,0 +1,36 @@
+{
+  "name": "offset",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OFFSET: AI agents cancel circular debt between small businesses, settled on PayPal",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev:server": "node --watch --env-file-if-exists=.env server/index.ts",
+    "dev:web": "vite",
+    "build": "vite build",
+    "start": "node --env-file-if-exists=.env server/index.ts",
+    "test": "node --test server/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node --env-file-if-exists=.env scripts/smoke.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "ag-grid-community": "^36.2.0",
+    "ag-grid-react": "^36.2.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.2"
+  }
+}

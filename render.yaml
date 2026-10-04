@@ -1,0 +1,50 @@
+# One web service. PUBLIC_URL is taken from Render's own RENDER_EXTERNAL_URL, so webhooks register themselves.
+services:
+  - type: web
+    name: offset
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: node server/index.ts
+    healthCheckPath: /api/state
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: PAYPAL_LUMEN_CLIENT_ID
+        sync: false
+      - key: PAYPAL_LUMEN_SECRET
+        sync: false
+      - key: PAYPAL_LUMEN_EMAIL
+        sync: false
+      - key: PAYPAL_HARBOR_CLIENT_ID
+        sync: false
+      - key: PAYPAL_HARBOR_SECRET
+        sync: false
+      - key: PAYPAL_HARBOR_EMAIL
+        sync: false
+      - key: PAYPAL_KITE_CLIENT_ID
+        sync: false
+      - key: PAYPAL_KITE_SECRET
+        sync: false
+      - key: PAYPAL_KITE_EMAIL
+        sync: false
+      - key: PAYPAL_SWIFT_CLIENT_ID
+        sync: false
+      - key: PAYPAL_SWIFT_SECRET
+        sync: false
+      - key: PAYPAL_SWIFT_EMAIL
+        sync: false
+      - key: PAYPAL_BOXWELL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_BOXWELL_SECRET
+        sync: false
+      - key: PAYPAL_BOXWELL_EMAIL
+        sync: false
+      - key: PAYPAL_PIXEL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_PIXEL_SECRET
+        sync: false
+      - key: PAYPAL_PIXEL_EMAIL
+        sync: false
