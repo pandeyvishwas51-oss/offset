@@ -59,7 +59,7 @@ export function Graph({ businesses, debts, net, hot, scale }: {
         const n = net.get(b.id) ?? 0;
         return (
           <g key={b.id} className="biz" transform={`translate(${x - BOX_W / 2} ${y - BOX_H / 2})`}>
-            <rect width={BOX_W} height={BOX_H} />
+            <rect width={BOX_W} height={BOX_H} rx={14} />
             <text className="biz-name" x={BOX_W / 2} y={23}>{b.name}</text>
             <text className={`biz-net ${n < 0 ? "is-owing" : ""}`} x={BOX_W / 2} y={42}>
               {n === 0 ? "even" : n < 0 ? `owes ${usd0(-n)} net` : `is owed ${usd0(n)} net`}

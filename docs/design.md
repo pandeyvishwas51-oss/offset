@@ -6,7 +6,7 @@
 |---|---|---|
 | Server | Node.js 22.18+, TypeScript run directly, built-in `node:http` | One process, no framework, no compile step |
 | Database | SQLite through built-in `node:sqlite` | Transactions and constraints with nothing to install |
-| Agents | Claude Opus 5.5, Anthropic TypeScript SDK, structured outputs (`messages.parse` with Zod) | Every answer is a typed yes, no or yes-if |
+| Agents | Claude Opus 5.5 with structured outputs: Anthropic TypeScript SDK (`messages.parse` with Zod) when an API key is set, Claude Agent SDK (`query` with `outputFormat`) on a Claude subscription | Every answer is a typed yes, no or yes-if |
 | PayPal | Plain `fetch` against the REST API | Ten endpoints; a client library would hide the calls judges want to see |
 | Interface | React, Vite, AG Grid, hand-drawn SVG graph | AG Grid for the three ledgers; the graph is 100 lines of SVG |
 | Hosting | Render (`render.yaml`) | Public address for PayPal webhooks |

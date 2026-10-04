@@ -17,12 +17,12 @@ export const BUSINESSES: SeedBusiness[] = [
   },
   {
     id: "harbor", name: "Harbor Distribution", trade: "Distributor", onTimePct: 81, avgDaysLate: 9,
-    policy: "Cash is tight until retailers pay us. I can commit to paying a new creditor within 14 days, not sooner. Accept a new payer if at least 75% of their invoices are paid on time.",
+    policy: "Cash is tight until retailers pay us. The soonest I can pay a new creditor is 14 days from now; do not promise anything faster. Accept a new payer if at least 75% of their invoices are paid on time.",
     notes: "Nothing unusual this month.",
   },
   {
     id: "kite", name: "Kite & Co", trade: "Toy retailer", onTimePct: 58, avgDaysLate: 21,
-    policy: "We usually pay late because we wait for weekend sales. I can commit to paying a new creditor within 10 days if the amount is under $5,000. Accept any new payer who pays more reliably than we do.",
+    policy: "We usually pay late because we wait for weekend sales. The soonest we can pay a new creditor is 10 days from now, and only for amounts under $5,000; do not promise anything faster or larger. Accept any new payer who pays more reliably than we do.",
     notes: "Harbor's invoice for the September restock: 60 of the 300 units arrived water-damaged. Harbor promised a credit note that has not come. Do not settle that invoice in any form until it does.",
   },
   {
@@ -76,8 +76,17 @@ export const INVOICES: SeedInvoice[] = [
     po: "Kite booking K-D12: 9 store drops at $200.00 = $1,800.00", delivery: "9 signed proof-of-delivery slips, 15 to 18 Sep" },
 ];
 
-// Wipes local state and issues every demo invoice afresh on PayPal.
+// Withdraws invoices left unpaid by the last run, so the sandbox does not fill up with stale ones.
+// Best effort; a failure here only costs tidiness. Sandbox balances are not restored: money a test account
+// receives through a payout cannot be spent again, so a sent payment cannot usefully be sent back.
+async function unwind(db: Db, paypal: PayPal) {
+  await Promise.all(db.invoices().filter((i) => i.status !== "settled" && i.paypal_id).map((i) =>
+    paypal.cancelInvoice(i.creditor, i.paypal_id).catch((e) => console.error(`demo reset, ${i.id}:`, e instanceof Error ? e.message : e))));
+}
+
+// Resets the demo, then issues every demo invoice afresh on PayPal.
 export async function seed(db: Db, paypal: PayPal, emails: Record<string, string>) {
+  await unwind(db, paypal);
   db.wipe();
   for (const b of BUSINESSES) {
     db.run("INSERT INTO business (id, name, trade, email, policy, notes, on_time_pct, avg_days_late) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

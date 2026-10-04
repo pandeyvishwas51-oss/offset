@@ -63,7 +63,7 @@ With no configuration, OFFSET runs against a simulated PayPal with rule-based ag
 
 For the real thing, copy `.env.example` to `.env` and fill it in:
 
-- `ANTHROPIC_API_KEY` turns on the Claude agents.
+- `ANTHROPIC_API_KEY` turns on the Claude agents. With no API key, `OFFSET_AGENTS=claude-plan` runs the same agents through the Claude Agent SDK, using the Claude subscription signed in on your machine.
 - Six PayPal sandbox apps (one per business, Invoicing and Payouts enabled) turn on the real sandbox. `npm run smoke` checks the PayPal calls against two of them.
 - `PUBLIC_URL` turns on webhooks. Without it, payments are confirmed by polling.
 
@@ -94,7 +94,7 @@ How the failure handling works:
 ## Built with
 
 - **PayPal**: Invoicing v2, Payouts, Webhooks, OAuth2 (sandbox)
-- **Claude Opus 5.5** via the Anthropic TypeScript SDK, with structured outputs
+- **Claude Opus 5.5** with structured outputs, through the Anthropic TypeScript SDK (API key) or the Claude Agent SDK (Claude subscription)
 - **AG Grid** for the invoice ledger, the PayPal entries and the webhook log
 - **Render** for hosting
 - Node.js (built-in HTTP server, SQLite and test runner), React, Vite, TypeScript
@@ -102,6 +102,7 @@ How the failure handling works:
 ## Limits, stated plainly
 
 - Sandbox only. The PayPal base URL is fixed in code.
+- A sandbox test account cannot re-spend money it receives through a payout, so the two businesses that pay the most run out of test balance after about one full run. Clearing rounds can be repeated freely; the payout step needs test accounts with enough balance. A rejected payout is reported, leaves its invoice open, and can be retried.
 - Each demo business has its own PayPal app and keys. A real service would act for businesses through PayPal's partner permissions.
 - A redirect is an agreement between three parties that OFFSET records. Whether set-off and payment direction are enforceable depends on the contract and the country.
 - The loop finder is greedy, not optimal. It is fine for small networks.

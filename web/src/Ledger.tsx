@@ -7,9 +7,9 @@ import { usd } from "./types.ts";
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 const theme = themeQuartz.withParams({
-  backgroundColor: "#EEF4EB", foregroundColor: "#15233A", headerBackgroundColor: "#DAE7D6", headerTextColor: "#15233A",
-  borderColor: "#A9C2AC", rowHoverColor: "#DAE7D6", accentColor: "#1F4FC4", oddRowBackgroundColor: "#E8F0E4",
-  fontFamily: "Archivo, system-ui, sans-serif", fontSize: 13, headerFontWeight: 650, wrapperBorderRadius: 0, borderRadius: 0, spacing: 6,
+  backgroundColor: "#FFFFFF", foregroundColor: "#001435", headerBackgroundColor: "#F7F5F0", headerTextColor: "#001435",
+  borderColor: "#E3E0DA", rowHoverColor: "#F0F6FF", accentColor: "#0070E0",
+  fontFamily: "'DM Sans', system-ui, sans-serif", fontSize: 14, headerFontWeight: 700, wrapperBorderRadius: 0, borderRadius: 6, spacing: 8,
 });
 
 const money: Partial<ColDef> = { valueFormatter: (p) => (p.value == null ? "" : usd(p.value)), type: "rightAligned", cellClass: "num", width: 130 };
@@ -67,7 +67,7 @@ export function Ledger({ state }: { state: State }) {
     : [state.received, heardCols, state.webhooks ? "No webhooks yet. They arrive after payments are sent." : "Webhooks are off because this server has no public address. Payments are confirmed by asking PayPal directly instead."];
 
   return (
-    <section className="ledger">
+    <section className="card ledger">
       <div className="tabs" role="tablist">
         {tabs.map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>{t.label}</button>

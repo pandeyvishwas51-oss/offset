@@ -192,18 +192,23 @@ export async function payRemaining({ db, paypal }: Deps): Promise<void> {
     !db.get("SELECT 1 FROM leg WHERE invoice_id = ? AND kind = 'payout' AND status IN ('pending', 'sent', 'done')", i.id));
   for (const debtor of new Set(unpaid.map((i) => i.debtor))) {
     const mine = unpaid.filter((i) => i.debtor === debtor);
+    const total = mine.reduce((s, i) => s + i.open, 0);
+    // A failed attempt leaves its rows behind as a record, so each new attempt gets its own marker and batch id.
+    const attempt = 1 + Math.max(...mine.map((inv) => db.all("SELECT 1 FROM leg WHERE kind = 'payout' AND invoice_id = ?", inv.id).length));
     for (const inv of mine) {
-      db.run("INSERT INTO leg (round_id, kind, invoice_id, amount, marker, status) VALUES (?, 'payout', ?, ?, ?, 'pending')", round.id, inv.id, inv.open, `OFFSET-PAY-R${round.id}-${inv.id}`);
+      db.run("INSERT INTO leg (round_id, kind, invoice_id, amount, marker, status) VALUES (?, 'payout', ?, ?, ?, 'pending')", round.id, inv.id, inv.open, `OFFSET-PAY-R${round.id}-${inv.id}-${attempt}`);
     }
+    const pending = "kind = 'payout' AND status = 'pending' AND invoice_id IN (SELECT id FROM invoice WHERE debtor = ?)";
     try {
-      const batch = await paypal.createPayout(debtor, `OFFSET-PAY-R${round.id}-${debtor}`, mine.map((inv) => ({
+      const batch = await paypal.createPayout(debtor, `OFFSET-PAY-R${round.id}-${debtor}-${attempt}`, mine.map((inv) => ({
         email: db.business(inv.creditor).email, amount: inv.open, itemId: inv.id, note: `Settles invoice ${inv.number} after OFFSET round ${round.id}`,
       })));
-      for (const inv of mine) db.run("UPDATE leg SET status = 'sent', ref = ? WHERE invoice_id = ? AND kind = 'payout' AND status = 'pending'", batch, inv.id);
-      db.say(round.id, debtor, "pay", `Sent ${usd(mine.reduce((s, i) => s + i.open, 0))} through PayPal to ${[...new Set(mine.map((i) => db.business(i.creditor).name))].join(", ")}. Waiting for PayPal to confirm.`);
+      db.run(`UPDATE leg SET status = 'sent', ref = ? WHERE ${pending}`, batch, debtor);
+      db.say(round.id, debtor, "pay", `Sent ${usd(total)} through PayPal to ${[...new Set(mine.map((i) => db.business(i.creditor).name))].join(", ")}. Waiting for PayPal to confirm.`);
     } catch (e) {
-      db.run("UPDATE leg SET status = 'failed', error = ? WHERE kind = 'payout' AND status = 'pending' AND invoice_id IN (SELECT id FROM invoice WHERE debtor = ?)", errText(e), debtor);
-      db.say(round.id, debtor, "error", `PayPal did not accept the payment: ${errText(e)}`);
+      db.run(`UPDATE leg SET status = 'failed', error = ? WHERE ${pending}`, errText(e), debtor);
+      const why = errText(e).includes("INSUFFICIENT_FUNDS") ? `Our PayPal balance is too low to send ${usd(total)}.` : `PayPal did not accept our payment of ${usd(total)}.`;
+      db.say(round.id, debtor, "error", `${why} These invoices stay open and can be paid again.`);
     }
   }
 }
