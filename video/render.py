@@ -32,7 +32,7 @@ EDITOR = {
 }
 
 
-def zooms(shown, length_ms):
+def zooms(shown, length_ms, intro_from):
     """Zoom regions as (start s, end s, depth, focus). Depth 1 is 1.25x, depth 2 is 1.5x."""
     def first(kind):
         return next((t for t, e in shown if e["kind"] == kind and e["round_id"] is not None), None)
@@ -46,7 +46,7 @@ def zooms(shown, length_ms):
     checks = min((t for t in (first("hold"), first("dispute")) if t is not None), default=None)
     paid = [t for t, e in shown if e["kind"] == "paid"]
     if round_start:
-        add(9.5, round_start - 1.0, 2, AGENTS)              # "each business has an AI agent"
+        add(intro_from, round_start - 4.0, 2, AGENTS)       # "each business has an AI agent"
     add(checks, first("loop"), 2, AGENTS)                    # the paperwork check and the disputed invoice
     add(first("loop"), first("propose"), 2, GRAPH)           # loops cancelling on the graph
     add(first("propose"), first("settled"), 1, BOTH)         # the negotiation: graph and agents together
@@ -62,6 +62,7 @@ def main():
     ap.add_argument("--recording", required=True)
     ap.add_argument("--state", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--intro-zoom-from", type=float, default=9.5, help="second at which the intro zooms onto the agents")
     args = ap.parse_args()
 
     recording = os.path.abspath(os.path.expanduser(args.recording))
@@ -75,7 +76,7 @@ def main():
     editor["clipRegions"] = [{"id": "clip-1", "startMs": 0, "endMs": int(length_ms), "speed": 1}]
     editor["zoomRegions"] = [
         {"id": f"zoom-{n + 1}", "startMs": int(a * 1000), "endMs": int(b * 1000), "depth": depth, "focus": {"cx": focus[0], "cy": focus[1]}, "mode": "manual"}
-        for n, (a, b, depth, focus) in enumerate(zooms(shown, length_ms))
+        for n, (a, b, depth, focus) in enumerate(zooms(shown, length_ms, args.intro_zoom_from))
     ]
     workdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "work")
     os.makedirs(workdir, exist_ok=True)

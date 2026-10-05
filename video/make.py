@@ -88,7 +88,7 @@ def speak(text, path):
 
 def captions_for(text, start, duration):
     """Splits a line into sentence-sized captions, each on screen for its share of the speaking time."""
-    parts = [p.strip() for p in re.split(r"(?<=[.:])\s+", text) if p.strip()]
+    parts = [p.strip() for p in re.split(r"(?<=[.])\s+", text) if p.strip()]
     total = sum(len(p) for p in parts)
     out, t = [], start
     for p in parts:

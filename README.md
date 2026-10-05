@@ -4,6 +4,8 @@
 
 Built for the PayPal AI Hackathon 2026.
 
+**Demo video (2:46):** [video/offset-demo.mp4](video/offset-demo.mp4). One unedited run against the real PayPal sandbox with Claude agents, with quiet stretches sped up.
+
 The demo has six businesses in one supply chain holding $64,250 of unpaid invoices against each other. In a run against the real PayPal sandbox, OFFSET cleared $42,850 of that with no money moving at all, kept $7,200 of suspect invoices out, and settled the rest with $14,200 of PayPal payouts. The exact split depends on what the agents agree; the least that could ever need paying is $13,400.
 
 ## The problem
