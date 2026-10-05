@@ -9,7 +9,8 @@ picture, and the figures spoken are the figures on screen.
 
 --rec-start-ms is the wall-clock time (epoch ms) of the recording's first frame.
 --state is a saved copy of GET /api/state taken after the run.
---speed 40:95:2.5 plays source seconds 40 to 95 at 2.5x (repeatable), to fit the three-minute limit.
+With no --speed, the picture is paced to the narration automatically: quiet stretches are sped up and
+moments that pass too quickly are slowed down. --speed 40:95:2.5 sets the stretches by hand instead.
 Needs macOS (say, afconvert), ffmpeg, and Google Chrome for drawing the caption images.
 """
 import argparse, json, os, re, subprocess, time, wave
@@ -64,6 +65,10 @@ def script(state, shown):
     ]
     if first("nodeal") is not None:
         lines.append((first("nodeal"), "The other agent checks what its owner allows. It can't promise that, so there is no deal, and OFFSET tries another route."))
+    deals = [st for st in state["steps"] if st["kind"] == "redirect"]
+    agreed, refused = sum(st["status"] == "agreed" for st in deals), sum(st["status"] == "refused" for st in deals)
+    if first("redirect") is not None and agreed + refused > 2:
+        lines.append((first("redirect"), f"The agents keep going until no chain is left. This run: {agreed} deals agreed, {refused} refused."))
     lines += [
         (first("settled"), "Every agreed change is written to the real PayPal invoices. If one write fails, all of them are reversed."),
         (first("done"), f"{usd(cancelled)} of debt is cancelled with no money moved. Nobody's net position changed."),
@@ -80,8 +85,8 @@ def script(state, shown):
     return out
 
 
-def speak(text, path):
-    subprocess.run(["say", "-v", VOICE, "-r", RATE, "-o", path, "--data-format=LEI16@44100", text], check=True)
+def speak(text, path, voice=VOICE, rate=RATE):
+    subprocess.run(["say", "-v", voice, "-r", str(rate), "-o", path, "--data-format=LEI16@44100", text], check=True)
     with wave.open(path) as w:
         return w.getnframes() / w.getframerate()
 
@@ -132,6 +137,9 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--speed", action="append", default=[], help="start:end:factor in source seconds")
     ap.add_argument("--end", type=float, help="cut the source here (seconds)")
+    ap.add_argument("--voice", default=VOICE, help="a macOS voice name, as listed by: say -v '?'")
+    ap.add_argument("--rate", default=RATE, help="speaking rate in words per minute")
+    ap.add_argument("--max-speed", type=float, default=8.0, help="fastest a quiet stretch may play when pacing automatically")
     args = ap.parse_args()
 
     workdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "work")
@@ -141,17 +149,33 @@ def main():
 
     src_len = float(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", args.video]))
     end = min(args.end or src_len, src_len)
-    fast = sorted((float(a), float(b), float(f)) for a, b, f in (s.split(":") for s in args.speed))
+    lines = script(state, shown)
+    spoken = [speak(text, os.path.join(workdir, f"line{n:02d}.wav"), args.voice, args.rate) for n, (_, text) in enumerate(lines)]
 
-    # Source time -> output time, after the sped-up stretches.
-    pieces, cursor = [], 0.0
-    for a, b, f in fast:
-        if a > cursor:
-            pieces.append((cursor, a, 1.0))
-        pieces.append((a, min(b, end), f))
-        cursor = b
-    if cursor < end:
-        pieces.append((cursor, end, 1.0))
+    if args.speed:
+        fast = sorted((float(a), float(b), float(f)) for a, b, f in (s.split(":") for s in args.speed))
+        pieces, cursor = [], 0.0
+        for a, b, f in fast:
+            if a > cursor:
+                pieces.append((cursor, a, 1.0))
+            pieces.append((a, min(b, end), f))
+            cursor = b
+        if cursor < end:
+            pieces.append((cursor, end, 1.0))
+    else:
+        # Pace the picture to the narration: the stretch between two narrated moments plays as fast (or as slow)
+        # as it takes for the next moment to arrive just as the narrator finishes the lines before it.
+        anchors = []  # (source time, seconds of narration that belong to this moment)
+        for (t, _), d in zip(lines, spoken):
+            if t is None:
+                anchors[-1][1] += d + 0.3
+            else:
+                anchors.append([max(t, anchors[-1][0] + 0.05) if anchors else t, d + 0.3])
+        pieces = [(0.0, anchors[0][0], 1.0)] if anchors[0][0] > 0 else []
+        for (a, talk), nxt in zip(anchors, anchors[1:]):
+            pieces.append((a, nxt[0], min(max((nxt[0] - a) / talk, 0.25), args.max_speed)))
+        end = min(end, anchors[-1][0] + anchors[-1][1] + 1.0)
+        pieces.append((anchors[-1][0], end, 1.0))
 
     def warp(t):
         out = 0.0
@@ -163,9 +187,8 @@ def main():
 
     # Lay the lines out in order: each starts at its moment (after speed-ups), never before the last one ends.
     timeline, clock = [], 0.0
-    for n, (t, text) in enumerate(script(state, shown)):
+    for n, ((t, text), dur) in enumerate(zip(lines, spoken)):
         wav = os.path.join(workdir, f"line{n:02d}.wav")
-        dur = speak(text, wav)
         start = max(warp(t) if t is not None else clock, clock)
         timeline.append((start, dur, text, wav))
         clock = start + dur + 0.3
