@@ -11,9 +11,10 @@ picture, and the figures spoken are the figures on screen.
 --state is a saved copy of GET /api/state taken after the run.
 With no --speed, the picture is paced to the narration automatically: quiet stretches are sped up and
 moments that pass too quickly are slowed down. --speed 40:95:2.5 sets the stretches by hand instead.
-Needs macOS (say, afconvert), ffmpeg, and Google Chrome for drawing the caption images.
+Needs macOS, ffmpeg, and Google Chrome for drawing the caption images. The voice is macOS `say` by default,
+or a local VoiceStudio server (https://github.com/debpalash/VoiceStudio) with --voicestudio-profile.
 """
-import argparse, json, os, re, subprocess, time, wave
+import argparse, array, json, os, re, subprocess, time, wave
 from datetime import datetime
 
 VOICE, RATE = "Samantha", "178"
@@ -85,8 +86,56 @@ def script(state, shown):
     return out
 
 
-def speak(text, path, voice=VOICE, rate=RATE):
-    subprocess.run(["say", "-v", voice, "-r", str(rate), "-o", path, "--data-format=LEI16@44100", text], check=True)
+ONES = "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split()
+TENS = "- - twenty thirty forty fifty sixty seventy eighty ninety".split()
+
+
+def words(n):
+    """A whole number under a million, written out, so a speech model cannot misread the digits."""
+    if n < 20:
+        return ONES[n]
+    if n < 100:
+        return TENS[n // 10] + ("-" + ONES[n % 10] if n % 10 else "")
+    if n < 1000:
+        return ONES[n // 100] + " hundred" + (" " + words(n % 100) if n % 100 else "")
+    return words(n // 1000) + " thousand" + (" " + words(n % 1000) if n % 1000 else "")
+
+
+def spoken_form(text):
+    text = re.sub(r"\$([\d,]+)", lambda m: words(int(m.group(1).replace(",", ""))) + " dollars", text)
+    return re.sub(r"\b(\d+)\b", lambda m: words(int(m.group(1))), text)
+
+
+def speak(text, path, voice=VOICE, rate=RATE, profile=None):
+    """Writes one narration line to a 44.1 kHz mono WAV and returns its length in seconds.
+
+    With a profile, the line comes from a local VoiceStudio server (open source, runs on this machine):
+    two takes, keeping the one whose length is closest to a natural speaking rate. Otherwise macOS `say`.
+    """
+    if not profile:
+        subprocess.run(["say", "-v", voice, "-r", str(rate), "-o", path, "--data-format=LEI16@44100", text], check=True)
+    else:
+        line = spoken_form(text)
+        want, best = len(line.split()) / 2.75, None
+        for seed in (11, 29):
+            raw = f"{path}.{seed}.raw"
+            subprocess.run(["curl", "-sS", "-f", "-m", "600", "-X", "POST", "http://127.0.0.1:3900/generate", "-F", "text=<-", "-F", "language=en",
+                            "-F", f"profile_id={profile}", "-F", f"seed={seed}", "-F", "num_step=32", "-F", "guidance_scale=2.0",
+                            "-F", "class_temperature=0.5", "-F", "effect_preset=raw", "-o", raw], input=line.encode(), check=True)
+            take = f"{path}.{seed}.wav"
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", raw, "-ac", "1", "-ar", "44100", "-c:a", "pcm_s16le", take], check=True)
+            os.remove(raw)
+            with wave.open(take) as w:
+                length = w.getnframes() / w.getframerate()
+            if best is None or abs(length - want) < abs(best[0] - want):
+                best = (length, take)
+        # Bring every line to the same peak level, so the narration does not jump in volume between lines.
+        with wave.open(best[1]) as w:
+            samples = array.array("h", w.readframes(w.getnframes()))
+        gain = 0.85 * 32767 / max(1, max(abs(x) for x in samples))
+        with wave.open(path, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(44100)
+            w.writeframes(array.array("h", (int(max(-32767, min(32767, x * gain))) for x in samples)).tobytes())
     with wave.open(path) as w:
         return w.getnframes() / w.getframerate()
 
@@ -139,6 +188,7 @@ def main():
     ap.add_argument("--end", type=float, help="cut the source here (seconds)")
     ap.add_argument("--voice", default=VOICE, help="a macOS voice name, as listed by: say -v '?'")
     ap.add_argument("--rate", default=RATE, help="speaking rate in words per minute")
+    ap.add_argument("--voicestudio-profile", help="narrate with this voice profile from a VoiceStudio server on localhost:3900")
     ap.add_argument("--max-speed", type=float, default=8.0, help="fastest a quiet stretch may play when pacing automatically")
     args = ap.parse_args()
 
@@ -150,7 +200,7 @@ def main():
     src_len = float(subprocess.check_output(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", args.video]))
     end = min(args.end or src_len, src_len)
     lines = script(state, shown)
-    spoken = [speak(text, os.path.join(workdir, f"line{n:02d}.wav"), args.voice, args.rate) for n, (_, text) in enumerate(lines)]
+    spoken = [speak(text, os.path.join(workdir, f"line{n:02d}.wav"), args.voice, args.rate, args.voicestudio_profile) for n, (_, text) in enumerate(lines)]
 
     if args.speed:
         fast = sorted((float(a), float(b), float(f)) for a, b, f in (s.split(":") for s in args.speed))
