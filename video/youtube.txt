@@ -1,0 +1,16 @@
+TITLE
+OFFSET: AI agents cancel circular debt between small businesses, settled on PayPal (PayPal AI Hackathon 2026)
+
+DESCRIPTION
+Six small businesses owe each other $64,250 in unpaid invoices. Much of that debt runs in circles, so it can cancel without anyone paying.
+
+OFFSET gives each business an AI agent that follows its owner's plain-English instructions. The agents check every invoice against its paperwork, hold back anything disputed, cancel loops of debt (plain code, no AI), and negotiate shortcuts along chains. The result is written to the real PayPal invoices, and PayPal payouts move only what is left.
+
+In this run: $42,850 cancelled with no money moving, $7,200 held back for a person, $14,200 paid through PayPal. Nobody's net position changed.
+
+One take against the real PayPal sandbox with Claude agents. Waits are sped up.
+
+Code (MIT): https://github.com/pandeyvishwas51-oss/offset
+Built with PayPal Invoicing, Payouts and Webhooks APIs, Claude, AG Grid, Node.js, React.
+
+OFFSET is a hackathon project. It is not a PayPal product.
